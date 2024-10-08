@@ -35,6 +35,8 @@ func init() {
 		DisableSorting:         true,
 		DisableLevelTruncation: true,
 	})
+
+	logrus.AddHook(&log.SpanLogHook{})
 }
 
 func main() {
