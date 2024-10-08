@@ -39,7 +39,7 @@ func PrepareContainerKill(ctx context.Context, experimentsDetails *experimentTyp
 	//Set up the tunables if provided in range
 	SetChaosTunables(experimentsDetails)
 
-	log.InfoWithValues("[Info]: The tunables are:", logrus.Fields{
+	log.WithContext(ctx).InfoWithValues("[Info]: The tunables are:", logrus.Fields{
 		"PodsAffectedPerc": experimentsDetails.PodsAffectedPerc,
 		"Sequence":         experimentsDetails.Sequence,
 	})
@@ -51,7 +51,7 @@ func PrepareContainerKill(ctx context.Context, experimentsDetails *experimentTyp
 
 	//Waiting for the ramp time before chaos injection
 	if experimentsDetails.RampTime != 0 {
-		log.Infof("[Ramp]: Waiting for the %vs ramp time before injecting chaos", experimentsDetails.RampTime)
+		log.WithContext(ctx).Infof("[Ramp]: Waiting for the %vs ramp time before injecting chaos", experimentsDetails.RampTime)
 		common.WaitForDuration(experimentsDetails.RampTime)
 	}
 
@@ -85,7 +85,7 @@ func PrepareContainerKill(ctx context.Context, experimentsDetails *experimentTyp
 
 	//Waiting for the ramp time after chaos injection
 	if experimentsDetails.RampTime != 0 {
-		log.Infof("[Ramp]: Waiting for the %vs ramp time after injecting chaos", experimentsDetails.RampTime)
+		log.WithContext(ctx).Infof("[Ramp]: Waiting for the %vs ramp time after injecting chaos", experimentsDetails.RampTime)
 		common.WaitForDuration(experimentsDetails.RampTime)
 	}
 	return nil
@@ -117,7 +117,7 @@ func injectChaosInSerialMode(ctx context.Context, experimentsDetails *experiment
 		appLabel := fmt.Sprintf("app=%s-helper-%s", experimentsDetails.ExperimentName, runID)
 
 		//checking the status of the helper pods, wait till the pod comes to running state else fail the experiment
-		log.Info("[Status]: Checking the status of the helper pods")
+		log.WithContext(ctx).Info("[Status]: Checking the status of the helper pods")
 		if err := status.CheckHelperStatus(experimentsDetails.ChaosNamespace, appLabel, experimentsDetails.Timeout, experimentsDetails.Delay, clients); err != nil {
 			common.DeleteAllHelperPodBasedOnJobCleanupPolicy(appLabel, chaosDetails, clients)
 			return stacktrace.Propagate(err, "could not check helper status")
@@ -125,7 +125,7 @@ func injectChaosInSerialMode(ctx context.Context, experimentsDetails *experiment
 
 		// Wait till the completion of the helper pod
 		// set an upper limit for the waiting time
-		log.Info("[Wait]: waiting till the completion of the helper pod")
+		log.WithContext(ctx).Info("[Wait]: waiting till the completion of the helper pod")
 		podStatus, err := status.WaitForCompletion(experimentsDetails.ChaosNamespace, appLabel, clients, experimentsDetails.ChaosDuration+experimentsDetails.Timeout, common.GetContainerNames(chaosDetails)...)
 		if err != nil || podStatus == "Failed" {
 			common.DeleteAllHelperPodBasedOnJobCleanupPolicy(appLabel, chaosDetails, clients)
@@ -133,7 +133,7 @@ func injectChaosInSerialMode(ctx context.Context, experimentsDetails *experiment
 		}
 
 		//Deleting all the helper pod for container-kill chaos
-		log.Info("[Cleanup]: Deleting all the helper pods")
+		log.WithContext(ctx).Info("[Cleanup]: Deleting all the helper pods")
 		if err = common.DeleteAllPod(appLabel, experimentsDetails.ChaosNamespace, chaosDetails.Timeout, chaosDetails.Delay, clients); err != nil {
 			return stacktrace.Propagate(err, "could not delete helper pod(s)")
 		}
@@ -167,7 +167,7 @@ func injectChaosInParallelMode(ctx context.Context, experimentsDetails *experime
 	appLabel := fmt.Sprintf("app=%s-helper-%s", experimentsDetails.ExperimentName, runID)
 
 	//checking the status of the helper pods, wait till the pod comes to running state else fail the experiment
-	log.Info("[Status]: Checking the status of the helper pods")
+	log.WithContext(ctx).Info("[Status]: Checking the status of the helper pods")
 	if err := status.CheckHelperStatus(experimentsDetails.ChaosNamespace, appLabel, experimentsDetails.Timeout, experimentsDetails.Delay, clients); err != nil {
 		common.DeleteAllHelperPodBasedOnJobCleanupPolicy(appLabel, chaosDetails, clients)
 		return stacktrace.Propagate(err, "could not check helper status")
@@ -175,7 +175,7 @@ func injectChaosInParallelMode(ctx context.Context, experimentsDetails *experime
 
 	// Wait till the completion of the helper pod
 	// set an upper limit for the waiting time
-	log.Info("[Wait]: waiting till the completion of the helper pod")
+	log.WithContext(ctx).Info("[Wait]: waiting till the completion of the helper pod")
 	podStatus, err := status.WaitForCompletion(experimentsDetails.ChaosNamespace, appLabel, clients, experimentsDetails.ChaosDuration+experimentsDetails.Timeout, common.GetContainerNames(chaosDetails)...)
 	if err != nil || podStatus == "Failed" {
 		common.DeleteAllHelperPodBasedOnJobCleanupPolicy(appLabel, chaosDetails, clients)
@@ -183,7 +183,7 @@ func injectChaosInParallelMode(ctx context.Context, experimentsDetails *experime
 	}
 
 	//Deleting all the helper pod for container-kill chaos
-	log.Info("[Cleanup]: Deleting all the helper pods")
+	log.WithContext(ctx).Info("[Cleanup]: Deleting all the helper pods")
 	if err = common.DeleteAllPod(appLabel, experimentsDetails.ChaosNamespace, chaosDetails.Timeout, chaosDetails.Delay, clients); err != nil {
 		return stacktrace.Propagate(err, "could not delete helper pod(s)")
 	}
