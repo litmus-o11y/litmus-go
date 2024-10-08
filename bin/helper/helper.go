@@ -35,6 +35,8 @@ func init() {
 		DisableSorting:         true,
 		DisableLevelTruncation: true,
 	})
+
+	logrus.AddHook(&log.SpanLogHook{})
 }
 
 func main() {
@@ -61,29 +63,29 @@ func main() {
 
 	//Getting kubeConfig and Generate ClientSets
 	if err := clients.GenerateClientSetFromKubeConfig(); err != nil {
-		log.Errorf("Unable to Get the kubeconfig, err: %v", err)
+		log.WithContext(ctx).Errorf("Unable to Get the kubeconfig, err: %v", err)
 		return
 	}
 
-	log.Infof("Helper Name: %v", *helperName)
+	log.WithContext(ctx).Infof("Helper Name: %v", *helperName)
 
 	// invoke the corresponding helper based on the the (-name) flag
 	switch *helperName {
 	case "container-kill":
-		containerKill.Helper(clients)
+		containerKill.Helper(ctx, clients)
 	case "disk-fill":
-		diskFill.Helper(clients)
+		diskFill.Helper(ctx, clients)
 	case "dns-chaos":
-		dnsChaos.Helper(clients)
+		dnsChaos.Helper(ctx, clients)
 	case "stress-chaos":
-		stressChaos.Helper(clients)
+		stressChaos.Helper(ctx, clients)
 	case "network-chaos":
-		networkChaos.Helper(clients)
+		networkChaos.Helper(ctx, clients)
 	case "http-chaos":
-		httpChaos.Helper(clients)
+		httpChaos.Helper(ctx, clients)
 
 	default:
-		log.Errorf("Unsupported -name %v, please provide the correct value of -name args", *helperName)
+		log.WithContext(ctx).Errorf("Unsupported -name %v, please provide the correct value of -name args", *helperName)
 		return
 	}
 }
