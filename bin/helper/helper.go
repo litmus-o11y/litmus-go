@@ -68,7 +68,6 @@ func main() {
 	}
 
 	log.WithContext(ctx).Infof("Helper Name: %v", *helperName)
-	logrus.Println("Here is helper pod")
 
 	// invoke the corresponding helper based on the the (-name) flag
 	switch *helperName {

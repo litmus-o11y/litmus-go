@@ -40,7 +40,6 @@ func Helper(ctx context.Context, clients clients.ClientSets) {
 
 	//Fetching all the ENV passed in the helper pod
 	log.WithContext(ctx).Info("[PreReq]: Getting the ENV variables")
-	logrus.Println("Here is helper pod of container kill")
 	getENV(&experimentsDetails)
 
 	// Initialise the chaos attributes
