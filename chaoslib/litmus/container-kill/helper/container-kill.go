@@ -39,7 +39,8 @@ func Helper(ctx context.Context, clients clients.ClientSets) {
 	resultDetails := types.ResultDetails{}
 
 	//Fetching all the ENV passed in the helper pod
-	log.Info("[PreReq]: Getting the ENV variables")
+	log.WithContext(ctx).Info("[PreReq]: Getting the ENV variables")
+	logrus.Println("Here is helper pod of container kill")
 	getENV(&experimentsDetails)
 
 	// Initialise the chaos attributes
@@ -49,19 +50,19 @@ func Helper(ctx context.Context, clients clients.ClientSets) {
 	// Initialise Chaos Result Parameters
 	types.SetResultAttributes(&resultDetails, chaosDetails)
 
-	if err := killContainer(&experimentsDetails, clients, &eventsDetails, &chaosDetails, &resultDetails); err != nil {
+	if err := killContainer(ctx, &experimentsDetails, clients, &eventsDetails, &chaosDetails, &resultDetails); err != nil {
 		// update failstep inside chaosresult
 		if resultErr := result.UpdateFailedStepFromHelper(&resultDetails, &chaosDetails, clients, err); resultErr != nil {
-			log.Fatalf("helper pod failed, err: %v, resultErr: %v", err, resultErr)
+			log.WithContext(ctx).Fatalf("helper pod failed, err: %v, resultErr: %v", err, resultErr)
 		}
-		log.Fatalf("helper pod failed, err: %v", err)
+		log.WithContext(ctx).Fatalf("helper pod failed, err: %v", err)
 	}
 }
 
 // killContainer kill the random application container
 // it will kill the container till the chaos duration
 // the execution will stop after timestamp passes the given chaos duration
-func killContainer(experimentsDetails *experimentTypes.ExperimentDetails, clients clients.ClientSets, eventsDetails *types.EventDetails, chaosDetails *types.ChaosDetails, resultDetails *types.ResultDetails) error {
+func killContainer(ctx context.Context, experimentsDetails *experimentTypes.ExperimentDetails, clients clients.ClientSets, eventsDetails *types.EventDetails, chaosDetails *types.ChaosDetails, resultDetails *types.ResultDetails) error {
 	targetList, err := common.ParseTargets(chaosDetails.ChaosPodName)
 	if err != nil {
 		return stacktrace.Propagate(err, "could not parse targets")
@@ -77,18 +78,18 @@ func killContainer(experimentsDetails *experimentTypes.ExperimentDetails, client
 			Source:          chaosDetails.ChaosPodName,
 		}
 		targets = append(targets, td)
-		log.Infof("Injecting chaos on target: {name: %s, namespace: %v, container: %v}", t.Name, t.Namespace, t.TargetContainer)
+		log.WithContext(ctx).Infof("Injecting chaos on target: {name: %s, namespace: %v, container: %v}", t.Name, t.Namespace, t.TargetContainer)
 	}
 
-	if err := killIterations(targets, experimentsDetails, clients, eventsDetails, chaosDetails, resultDetails); err != nil {
+	if err := killIterations(ctx, targets, experimentsDetails, clients, eventsDetails, chaosDetails, resultDetails); err != nil {
 		return err
 	}
 
-	log.Infof("[Completion]: %v chaos has been completed", experimentsDetails.ExperimentName)
+	log.WithContext(ctx).Infof("[Completion]: %v chaos has been completed", experimentsDetails.ExperimentName)
 	return nil
 }
 
-func killIterations(targets []targetDetails, experimentsDetails *experimentTypes.ExperimentDetails, clients clients.ClientSets, eventsDetails *types.EventDetails, chaosDetails *types.ChaosDetails, resultDetails *types.ResultDetails) error {
+func killIterations(ctx context.Context, targets []targetDetails, experimentsDetails *experimentTypes.ExperimentDetails, clients clients.ClientSets, eventsDetails *types.EventDetails, chaosDetails *types.ChaosDetails, resultDetails *types.ResultDetails) error {
 
 	//ChaosStartTimeStamp contains the start timestamp, when the chaos injection begin
 	ChaosStartTimeStamp := time.Now()
@@ -109,7 +110,7 @@ func killIterations(targets []targetDetails, experimentsDetails *experimentTypes
 				return stacktrace.Propagate(err, "could not get container id")
 			}
 
-			log.InfoWithValues("[Info]: Details of application under chaos injection", logrus.Fields{
+			log.WithContext(ctx).InfoWithValues("[Info]: Details of application under chaos injection", logrus.Fields{
 				"PodName":            t.Name,
 				"ContainerName":      t.TargetContainer,
 				"RestartCountBefore": t.RestartCountBefore,
@@ -124,12 +125,12 @@ func killIterations(targets []targetDetails, experimentsDetails *experimentTypes
 
 		//Waiting for the chaos interval after chaos injection
 		if experimentsDetails.ChaosInterval != 0 {
-			log.Infof("[Wait]: Wait for the chaos interval %vs", experimentsDetails.ChaosInterval)
+			log.WithContext(ctx).Infof("[Wait]: Wait for the chaos interval %vs", experimentsDetails.ChaosInterval)
 			common.WaitForDuration(experimentsDetails.ChaosInterval)
 		}
 
 		for _, t := range targets {
-			if err := validate(t, experimentsDetails.Timeout, experimentsDetails.Delay, clients); err != nil {
+			if err := validate(ctx, t, experimentsDetails.Timeout, experimentsDetails.Delay, clients); err != nil {
 				return stacktrace.Propagate(err, "could not verify restart count")
 			}
 			if err := result.AnnotateChaosResult(resultDetails.Name, chaosDetails.ChaosNamespace, "targeted", "pod", t.Name); err != nil {
@@ -166,14 +167,14 @@ func kill(experimentsDetails *experimentTypes.ExperimentDetails, containerIds []
 	return nil
 }
 
-func validate(t targetDetails, timeout, delay int, clients clients.ClientSets) error {
+func validate(ctx context.Context, t targetDetails, timeout, delay int, clients clients.ClientSets) error {
 	//Check the status of restarted container
 	if err := common.CheckContainerStatus(t.Namespace, t.Name, timeout, delay, clients, t.Source); err != nil {
 		return err
 	}
 
 	// It will verify that the restart count of container should increase after chaos injection
-	return verifyRestartCount(t, timeout, delay, clients, t.RestartCountBefore)
+	return verifyRestartCount(ctx, t, timeout, delay, clients, t.RestartCountBefore)
 }
 
 // stopContainerdContainer kill the application container
@@ -227,7 +228,7 @@ func getRestartCount(target targetDetails, clients clients.ClientSets) (int, err
 }
 
 // verifyRestartCount verify the restart count of target container that it is restarted or not after chaos injection
-func verifyRestartCount(t targetDetails, timeout, delay int, clients clients.ClientSets, restartCountBefore int) error {
+func verifyRestartCount(ctx context.Context, t targetDetails, timeout, delay int, clients clients.ClientSets, restartCountBefore int) error {
 
 	restartCountAfter := 0
 	return retry.
@@ -247,7 +248,7 @@ func verifyRestartCount(t targetDetails, timeout, delay int, clients clients.Cli
 			if restartCountAfter <= restartCountBefore {
 				return cerrors.Error{ErrorCode: cerrors.ErrorTypeHelper, Source: t.Source, Target: fmt.Sprintf("{podName: %s, namespace: %s, container: %s}", t.Name, t.Namespace, t.TargetContainer), Reason: "target container is not restarted after kill"}
 			}
-			log.Infof("restartCount of target container after chaos injection: %v", strconv.Itoa(restartCountAfter))
+			log.WithContext(ctx).Infof("restartCount of target container after chaos injection: %v", strconv.Itoa(restartCountAfter))
 			return nil
 		})
 }

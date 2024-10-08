@@ -61,11 +61,12 @@ func main() {
 
 	//Getting kubeConfig and Generate ClientSets
 	if err := clients.GenerateClientSetFromKubeConfig(); err != nil {
-		log.Errorf("Unable to Get the kubeconfig, err: %v", err)
+		log.WithContext(ctx).Errorf("Unable to Get the kubeconfig, err: %v", err)
 		return
 	}
 
-	log.Infof("Helper Name: %v", *helperName)
+	log.WithContext(ctx).Infof("Helper Name: %v", *helperName)
+	logrus.Println("Here is helper pod")
 
 	// invoke the corresponding helper based on the the (-name) flag
 	switch *helperName {
@@ -83,7 +84,7 @@ func main() {
 		httpChaos.Helper(ctx, clients)
 
 	default:
-		log.Errorf("Unsupported -name %v, please provide the correct value of -name args", *helperName)
+		log.WithContext(ctx).Errorf("Unsupported -name %v, please provide the correct value of -name args", *helperName)
 		return
 	}
 }
