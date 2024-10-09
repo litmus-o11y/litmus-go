@@ -2,6 +2,7 @@ package probe
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -20,19 +21,19 @@ import (
 
 // preparePromProbe contains the steps to prepare the prometheus probe
 // which compares the metrics output exposed at the given endpoint
-func preparePromProbe(probe v1alpha1.ProbeAttributes, clients clients.ClientSets, chaosDetails *types.ChaosDetails, resultDetails *types.ResultDetails, phase string) error {
+func preparePromProbe(ctx context.Context, probe v1alpha1.ProbeAttributes, clients clients.ClientSets, chaosDetails *types.ChaosDetails, resultDetails *types.ResultDetails, phase string) error {
 
 	switch strings.ToLower(phase) {
 	case "prechaos":
-		if err := preChaosPromProbe(probe, resultDetails, clients, chaosDetails); err != nil {
+		if err := preChaosPromProbe(ctx, probe, resultDetails, clients, chaosDetails); err != nil {
 			return err
 		}
 	case "postchaos":
-		if err := postChaosPromProbe(probe, resultDetails, clients, chaosDetails); err != nil {
+		if err := postChaosPromProbe(ctx, probe, resultDetails, clients, chaosDetails); err != nil {
 			return err
 		}
 	case "duringchaos":
-		if err := onChaosPromProbe(probe, resultDetails, clients, chaosDetails); err != nil {
+		if err := onChaosPromProbe(ctx, probe, resultDetails, clients, chaosDetails); err != nil {
 			return err
 		}
 	default:
@@ -42,14 +43,14 @@ func preparePromProbe(probe v1alpha1.ProbeAttributes, clients clients.ClientSets
 }
 
 // preChaosPromProbe trigger the prometheus probe for prechaos phase
-func preChaosPromProbe(probe v1alpha1.ProbeAttributes, resultDetails *types.ResultDetails, clients clients.ClientSets, chaosDetails *types.ChaosDetails) error {
+func preChaosPromProbe(ctx context.Context, probe v1alpha1.ProbeAttributes, resultDetails *types.ResultDetails, clients clients.ClientSets, chaosDetails *types.ChaosDetails) error {
 	probeTimeout := getProbeTimeouts(probe.Name, resultDetails.ProbeDetails)
 
 	switch strings.ToLower(probe.Mode) {
 	case "sot", "edge":
 
 		//DISPLAY THE PROMETHEUS PROBE INFO
-		log.InfoWithValues("[Probe]: The prometheus probe information is as follows", logrus.Fields{
+		log.WithContext(ctx).InfoWithValues("[Probe]: The prometheus probe information is as follows", logrus.Fields{
 			"Name":           probe.Name,
 			"Query":          probe.PromProbeInputs.Query,
 			"Endpoint":       probe.PromProbeInputs.Endpoint,
@@ -61,25 +62,25 @@ func preChaosPromProbe(probe v1alpha1.ProbeAttributes, resultDetails *types.Resu
 
 		// waiting for initial delay
 		if probeTimeout.InitialDelay != 0 {
-			log.Infof("[Wait]: Waiting for %v before probe execution", probe.RunProperties.InitialDelay)
+			log.WithContext(ctx).Infof("[Wait]: Waiting for %v before probe execution", probe.RunProperties.InitialDelay)
 			time.Sleep(probeTimeout.InitialDelay)
 		}
 
 		// triggering the prom probe and storing the output into the out buffer
-		if err = triggerPromProbe(probe, resultDetails); err != nil && cerrors.GetErrorType(err) != cerrors.FailureTypePromProbe {
+		if err = triggerPromProbe(ctx, probe, resultDetails); err != nil && cerrors.GetErrorType(err) != cerrors.FailureTypePromProbe {
 			return err
 		}
 
 		// failing the probe, if the success condition doesn't met after the retry & timeout combinations
 		// it will update the status of all the unrun probes as well
-		if err = markedVerdictInEnd(err, resultDetails, probe, "PreChaos"); err != nil {
+		if err = markedVerdictInEnd(ctx, err, resultDetails, probe, "PreChaos"); err != nil {
 			return err
 		}
 
 	case "continuous":
 
 		//DISPLAY THE PROMETHEUS PROBE INFO
-		log.InfoWithValues("[Probe]: The prometheus probe information is as follows", logrus.Fields{
+		log.WithContext(ctx).InfoWithValues("[Probe]: The prometheus probe information is as follows", logrus.Fields{
 			"Name":           probe.Name,
 			"Query":          probe.PromProbeInputs.Query,
 			"Endpoint":       probe.PromProbeInputs.Endpoint,
@@ -90,21 +91,21 @@ func preChaosPromProbe(probe v1alpha1.ProbeAttributes, resultDetails *types.Resu
 		})
 
 		// trigger the continuous cmd probe
-		go triggerContinuousPromProbe(probe, clients, resultDetails, chaosDetails)
+		go triggerContinuousPromProbe(ctx, probe, clients, resultDetails, chaosDetails)
 	}
 
 	return nil
 }
 
 // postChaosPromProbe trigger the prometheus probe for postchaos phase
-func postChaosPromProbe(probe v1alpha1.ProbeAttributes, resultDetails *types.ResultDetails, clients clients.ClientSets, chaosDetails *types.ChaosDetails) error {
+func postChaosPromProbe(ctx context.Context, probe v1alpha1.ProbeAttributes, resultDetails *types.ResultDetails, clients clients.ClientSets, chaosDetails *types.ChaosDetails) error {
 	probeTimeout := getProbeTimeouts(probe.Name, resultDetails.ProbeDetails)
 
 	switch strings.ToLower(probe.Mode) {
 	case "eot", "edge":
 
 		//DISPLAY THE PROMETHEUS PROBE INFO
-		log.InfoWithValues("[Probe]: The prometheus probe information is as follows", logrus.Fields{
+		log.WithContext(ctx).InfoWithValues("[Probe]: The prometheus probe information is as follows", logrus.Fields{
 			"Name":           probe.Name,
 			"Query":          probe.PromProbeInputs.Query,
 			"Endpoint":       probe.PromProbeInputs.Endpoint,
@@ -116,30 +117,30 @@ func postChaosPromProbe(probe v1alpha1.ProbeAttributes, resultDetails *types.Res
 
 		// waiting for initial delay
 		if probeTimeout.InitialDelay != 0 {
-			log.Infof("[Wait]: Waiting for %v before probe execution", probe.RunProperties.InitialDelay)
+			log.WithContext(ctx).Infof("[Wait]: Waiting for %v before probe execution", probe.RunProperties.InitialDelay)
 			time.Sleep(probeTimeout.InitialDelay)
 		}
 
 		// triggering the prom probe and storing the output into the out buffer
-		if err = triggerPromProbe(probe, resultDetails); err != nil && cerrors.GetErrorType(err) != cerrors.FailureTypePromProbe {
+		if err = triggerPromProbe(ctx, probe, resultDetails); err != nil && cerrors.GetErrorType(err) != cerrors.FailureTypePromProbe {
 			return err
 		}
 
 		// failing the probe, if the success condition doesn't met after the retry & timeout combinations
 		// it will update the status of all the unrun probes as well
-		if err = markedVerdictInEnd(err, resultDetails, probe, "PostChaos"); err != nil {
+		if err = markedVerdictInEnd(ctx, err, resultDetails, probe, "PostChaos"); err != nil {
 			return err
 		}
 
 	case "continuous", "onchaos":
 
 		// it will check for the error, It will detect the error if any error encountered in probe during chaos
-		if err = checkForErrorInContinuousProbe(resultDetails, probe.Name, chaosDetails.Delay, chaosDetails.Timeout); err != nil && cerrors.GetErrorType(err) != cerrors.FailureTypePromProbe && cerrors.GetErrorType(err) != cerrors.FailureTypeProbeTimeout {
+		if err = checkForErrorInContinuousProbe(ctx, resultDetails, probe.Name, chaosDetails.Delay, chaosDetails.Timeout); err != nil && cerrors.GetErrorType(err) != cerrors.FailureTypePromProbe && cerrors.GetErrorType(err) != cerrors.FailureTypeProbeTimeout {
 			return err
 		}
 
 		// failing the probe, if the success condition doesn't met after the retry & timeout combinations
-		if err = markedVerdictInEnd(err, resultDetails, probe, "PostChaos"); err != nil {
+		if err = markedVerdictInEnd(ctx, err, resultDetails, probe, "PostChaos"); err != nil {
 			return err
 		}
 
@@ -148,13 +149,13 @@ func postChaosPromProbe(probe v1alpha1.ProbeAttributes, resultDetails *types.Res
 }
 
 // onChaosPromProbe trigger the prom probe for DuringChaos phase
-func onChaosPromProbe(probe v1alpha1.ProbeAttributes, resultDetails *types.ResultDetails, clients clients.ClientSets, chaosDetails *types.ChaosDetails) error {
+func onChaosPromProbe(ctx context.Context, probe v1alpha1.ProbeAttributes, resultDetails *types.ResultDetails, clients clients.ClientSets, chaosDetails *types.ChaosDetails) error {
 
 	switch strings.ToLower(probe.Mode) {
 	case "onchaos":
 
 		//DISPLAY THE PROMETHEUS PROBE INFO
-		log.InfoWithValues("[Probe]: The prometheus probe information is as follows", logrus.Fields{
+		log.WithContext(ctx).InfoWithValues("[Probe]: The prometheus probe information is as follows", logrus.Fields{
 			"Name":           probe.Name,
 			"Query":          probe.PromProbeInputs.Query,
 			"Endpoint":       probe.PromProbeInputs.Endpoint,
@@ -165,13 +166,13 @@ func onChaosPromProbe(probe v1alpha1.ProbeAttributes, resultDetails *types.Resul
 		})
 
 		// trigger the continuous prom probe
-		go triggerOnChaosPromProbe(probe, clients, resultDetails, chaosDetails)
+		go triggerOnChaosPromProbe(ctx, probe, clients, resultDetails, chaosDetails)
 	}
 	return nil
 }
 
 // triggerPromProbe trigger the prometheus probe inside the external pod
-func triggerPromProbe(probe v1alpha1.ProbeAttributes, resultDetails *types.ResultDetails) error {
+func triggerPromProbe(ctx context.Context, probe v1alpha1.ProbeAttributes, resultDetails *types.ResultDetails) error {
 	probeTimeout := getProbeTimeouts(probe.Name, resultDetails.ProbeDetails)
 
 	var description string
@@ -218,26 +219,26 @@ func triggerPromProbe(probe v1alpha1.ProbeAttributes, resultDetails *types.Resul
 				ProbeName(probe.Name).
 				ProbeVerbosity(probe.RunProperties.Verbosity).
 				CompareFloat(cerrors.FailureTypePromProbe); err != nil {
-				log.Errorf("The %v prom probe has been Failed, err: %v", probe.Name, err)
+				log.WithContext(ctx).Errorf("The %v prom probe has been Failed, err: %v", probe.Name, err)
 				return err
 			}
 			description = fmt.Sprintf("Obtained the specified prometheus metrics. Actual value: %s. Expected value: %s", value, probe.PromProbeInputs.Comparator.Value)
 			return nil
 		}); err != nil {
-		return checkProbeTimeoutError(probe.Name, cerrors.FailureTypePromProbe, err)
+		return checkProbeTimeoutError(ctx, probe.Name, cerrors.FailureTypePromProbe, err)
 	}
 	setProbeDescription(resultDetails, probe, description)
 	return nil
 }
 
 // triggerContinuousPromProbe trigger the continuous prometheus probe
-func triggerContinuousPromProbe(probe v1alpha1.ProbeAttributes, clients clients.ClientSets, chaosresult *types.ResultDetails, chaosDetails *types.ChaosDetails) {
+func triggerContinuousPromProbe(ctx context.Context, probe v1alpha1.ProbeAttributes, clients clients.ClientSets, chaosresult *types.ResultDetails, chaosDetails *types.ChaosDetails) {
 	probeTimeout := getProbeTimeouts(probe.Name, chaosresult.ProbeDetails)
 
 	var isExperimentFailed bool
 	// waiting for initial delay
 	if probeTimeout.InitialDelay != 0 {
-		log.Infof("[Wait]: Waiting for %v before probe execution", probe.RunProperties.InitialDelay)
+		log.WithContext(ctx).Infof("[Wait]: Waiting for %v before probe execution", probe.RunProperties.InitialDelay)
 		time.Sleep(probeTimeout.InitialDelay)
 	}
 
@@ -247,7 +248,7 @@ loop:
 	for {
 		select {
 		case <-chaosDetails.ProbeContext.Ctx.Done():
-			log.Infof("Stopping %s continuous Probe", probe.Name)
+			log.WithContext(ctx).Infof("Stopping %s continuous Probe", probe.Name)
 			for index := range chaosresult.ProbeDetails {
 				if chaosresult.ProbeDetails[index].Name == probe.Name {
 					chaosresult.ProbeDetails[index].HasProbeCompleted = true
@@ -255,7 +256,7 @@ loop:
 			}
 			break loop
 		default:
-			err = triggerPromProbe(probe, chaosresult)
+			err = triggerPromProbe(ctx, probe, chaosresult)
 			// record the error inside the probeDetails, we are maintaining a dedicated variable for the err, inside probeDetails
 			if err != nil {
 				err = addProbePhase(err, string(chaosDetails.Phase))
@@ -264,7 +265,7 @@ loop:
 						chaosresult.ProbeDetails[index].IsProbeFailedWithError = err
 						chaosresult.ProbeDetails[index].HasProbeCompleted = true
 						chaosresult.ProbeDetails[index].Status.Description = getDescription(err)
-						log.Errorf("The %v prom probe has been Failed, err: %v", probe.Name, err)
+						log.WithContext(ctx).Errorf("The %v prom probe has been Failed, err: %v", probe.Name, err)
 						isExperimentFailed = true
 						break loop
 					}
@@ -278,21 +279,21 @@ loop:
 	// if experiment fails but stopOnfailure is provided as false then it will continue the execution
 	// and failed the experiment in the end
 	if isExperimentFailed && probe.RunProperties.StopOnFailure {
-		if err := stopChaosEngine(probe, clients, chaosresult, chaosDetails); err != nil {
-			log.Errorf("unable to patch chaosengine to stop, err: %v", err)
+		if err := stopChaosEngine(ctx, probe, clients, chaosresult, chaosDetails); err != nil {
+			log.WithContext(ctx).Errorf("unable to patch chaosengine to stop, err: %v", err)
 		}
 	}
 }
 
 // triggerOnChaosPromProbe trigger the onchaos prom probe
-func triggerOnChaosPromProbe(probe v1alpha1.ProbeAttributes, clients clients.ClientSets, chaosresult *types.ResultDetails, chaosDetails *types.ChaosDetails) {
+func triggerOnChaosPromProbe(ctx context.Context, probe v1alpha1.ProbeAttributes, clients clients.ClientSets, chaosresult *types.ResultDetails, chaosDetails *types.ChaosDetails) {
 	probeTimeout := getProbeTimeouts(probe.Name, chaosresult.ProbeDetails)
 
 	var isExperimentFailed bool
 	duration := chaosDetails.ChaosDuration
 	// waiting for initial delay
 	if probeTimeout.InitialDelay != 0 {
-		log.Infof("[Wait]: Waiting for %v before probe execution", probe.RunProperties.InitialDelay)
+		log.WithContext(ctx).Infof("[Wait]: Waiting for %v before probe execution", probe.RunProperties.InitialDelay)
 		time.Sleep(probeTimeout.InitialDelay)
 		duration = math.Maximum(0, duration-int(probeTimeout.InitialDelay))
 	}
@@ -305,7 +306,7 @@ loop:
 	for {
 		select {
 		case <-endTime:
-			log.Infof("[Chaos]: Time is up for the %v probe", probe.Name)
+			log.WithContext(ctx).Infof("[Chaos]: Time is up for the %v probe", probe.Name)
 			for index := range chaosresult.ProbeDetails {
 				if chaosresult.ProbeDetails[index].Name == probe.Name {
 					chaosresult.ProbeDetails[index].HasProbeCompleted = true
@@ -315,14 +316,14 @@ loop:
 			break loop
 		default:
 			// record the error inside the probeDetails, we are maintaining a dedicated variable for the err, inside probeDetails
-			if err = triggerPromProbe(probe, chaosresult); err != nil {
+			if err = triggerPromProbe(ctx, probe, chaosresult); err != nil {
 				err = addProbePhase(err, string(chaosDetails.Phase))
 				for index := range chaosresult.ProbeDetails {
 					if chaosresult.ProbeDetails[index].Name == probe.Name {
 						chaosresult.ProbeDetails[index].IsProbeFailedWithError = err
 						chaosresult.ProbeDetails[index].HasProbeCompleted = true
 						chaosresult.ProbeDetails[index].Status.Description = getDescription(err)
-						log.Errorf("The %v prom probe has been Failed, err: %v", probe.Name, err)
+						log.WithContext(ctx).Errorf("The %v prom probe has been Failed, err: %v", probe.Name, err)
 						isExperimentFailed = true
 						break loop
 					}
@@ -331,7 +332,7 @@ loop:
 
 			select {
 			case <-chaosDetails.ProbeContext.Ctx.Done():
-				log.Infof("Stopping %s continuous Probe", probe.Name)
+				log.WithContext(ctx).Infof("Stopping %s continuous Probe", probe.Name)
 				for index := range chaosresult.ProbeDetails {
 					if chaosresult.ProbeDetails[index].Name == probe.Name {
 						chaosresult.ProbeDetails[index].HasProbeCompleted = true
@@ -348,8 +349,8 @@ loop:
 	// if experiment fails but stopOnfailure is provided as false then it will continue the execution
 	// and failed the experiment in the end
 	if isExperimentFailed && probe.RunProperties.StopOnFailure {
-		if err := stopChaosEngine(probe, clients, chaosresult, chaosDetails); err != nil {
-			log.Errorf("unable to patch chaosengine to stop, err: %v", err)
+		if err := stopChaosEngine(ctx, probe, clients, chaosresult, chaosDetails); err != nil {
+			log.WithContext(ctx).Errorf("unable to patch chaosengine to stop, err: %v", err)
 		}
 	}
 }

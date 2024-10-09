@@ -41,7 +41,7 @@ func RunProbes(ctx context.Context, chaosDetails *types.ChaosDetails, clients cl
 		for _, probe := range probes {
 			switch strings.ToLower(probe.Mode) {
 			case "sot", "edge", "continuous":
-				if err := execute(probe, chaosDetails, clients, resultDetails, phase); err != nil {
+				if err := execute(ctx, probe, chaosDetails, clients, resultDetails, phase); err != nil {
 					return err
 				}
 			}
@@ -50,7 +50,7 @@ func RunProbes(ctx context.Context, chaosDetails *types.ChaosDetails, clients cl
 	case "duringchaos":
 		for _, probe := range probes {
 			if strings.ToLower(probe.Mode) == "onchaos" {
-				if err := execute(probe, chaosDetails, clients, resultDetails, phase); err != nil {
+				if err := execute(ctx, probe, chaosDetails, clients, resultDetails, phase); err != nil {
 					return err
 				}
 			}
@@ -66,7 +66,7 @@ func RunProbes(ctx context.Context, chaosDetails *types.ChaosDetails, clients cl
 			// evaluate continuous and onchaos probes
 			switch strings.ToLower(probe.Mode) {
 			case "onchaos", "continuous":
-				if err := execute(probe, chaosDetails, clients, resultDetails, phase); err != nil {
+				if err := execute(ctx, probe, chaosDetails, clients, resultDetails, phase); err != nil {
 					probeError = append(probeError, stacktrace.RootCause(err).Error())
 				}
 			}
@@ -78,7 +78,7 @@ func RunProbes(ctx context.Context, chaosDetails *types.ChaosDetails, clients cl
 		for _, probe := range probes {
 			switch strings.ToLower(probe.Mode) {
 			case "eot", "edge":
-				if err := execute(probe, chaosDetails, clients, resultDetails, phase); err != nil {
+				if err := execute(ctx, probe, chaosDetails, clients, resultDetails, phase); err != nil {
 					return err
 				}
 			}
@@ -176,7 +176,7 @@ func setRunIDForProbe(resultDetails *types.ResultDetails, probeName, probeType, 
 }
 
 // markedVerdictInEnd add the probe status in the chaosresult
-func markedVerdictInEnd(err error, resultDetails *types.ResultDetails, probe v1alpha1.ProbeAttributes, phase string) error {
+func markedVerdictInEnd(ctx context.Context, err error, resultDetails *types.ResultDetails, probe v1alpha1.ProbeAttributes, phase string) error {
 	probeVerdict := v1alpha1.ProbeVerdictPassed
 	var description string
 	if err != nil {
@@ -185,7 +185,7 @@ func markedVerdictInEnd(err error, resultDetails *types.ResultDetails, probe v1a
 
 	switch probeVerdict {
 	case v1alpha1.ProbeVerdictPassed:
-		log.InfoWithValues("[Probe]: "+probe.Name+" probe has been Passed "+emoji.Sprint(":smile:"), logrus.Fields{
+		log.WithContext(ctx).InfoWithValues("[Probe]: "+probe.Name+" probe has been Passed "+emoji.Sprint(":smile:"), logrus.Fields{
 			"ProbeName":     probe.Name,
 			"ProbeType":     probe.Type,
 			"ProbeInstance": phase,
@@ -202,7 +202,7 @@ func markedVerdictInEnd(err error, resultDetails *types.ResultDetails, probe v1a
 			resultDetails.PassedProbeCount++
 		}
 	default:
-		log.ErrorWithValues("[Probe]: "+probe.Name+" probe has been Failed "+emoji.Sprint(":cry:"), logrus.Fields{
+		log.WithContext(ctx).ErrorWithValues("[Probe]: "+probe.Name+" probe has been Failed "+emoji.Sprint(":cry:"), logrus.Fields{
 			"ProbeName":     probe.Name,
 			"ProbeType":     probe.Type,
 			"ProbeInstance": phase,
@@ -258,7 +258,7 @@ func getDescription(err error) string {
 }
 
 // CheckForErrorInContinuousProbe check for the error in the continuous probes
-func checkForErrorInContinuousProbe(resultDetails *types.ResultDetails, probeName string, delay int, timeout int) error {
+func checkForErrorInContinuousProbe(ctx context.Context, resultDetails *types.ResultDetails, probeName string, delay int, timeout int) error {
 
 	probe := getProbeByName(probeName, resultDetails.ProbeDetails)
 	startTime := time.Now()
@@ -277,7 +277,7 @@ loop:
 			if probe.HasProbeCompleted {
 				break loop
 			}
-			log.Infof("[Probe]: Waiting for %s probe to finish or timeout (Elapsed time: %v s)", probeName, time.Since(startTime).Seconds())
+			log.WithContext(ctx).Infof("[Probe]: Waiting for %s probe to finish or timeout (Elapsed time: %v s)", probeName, time.Since(startTime).Seconds())
 			time.Sleep(time.Duration(delay) * time.Second)
 		}
 	}
@@ -307,14 +307,14 @@ func parseCommand(templatedCommand string, resultDetails *types.ResultDetails) (
 }
 
 // stopChaosEngine update the probe status and patch the chaosengine to stop state
-func stopChaosEngine(probe v1alpha1.ProbeAttributes, clients clients.ClientSets, chaosresult *types.ResultDetails, chaosDetails *types.ChaosDetails) error {
+func stopChaosEngine(ctx context.Context, probe v1alpha1.ProbeAttributes, clients clients.ClientSets, chaosresult *types.ResultDetails, chaosDetails *types.ChaosDetails) error {
 	// it will check for the error, It will detect the error if any error encountered in probe during chaos
-	if err = checkForErrorInContinuousProbe(chaosresult, probe.Name, chaosDetails.Timeout, chaosDetails.Delay); err != nil && cerrors.GetErrorType(err) != cerrors.FailureTypeProbeTimeout {
+	if err = checkForErrorInContinuousProbe(ctx, chaosresult, probe.Name, chaosDetails.Timeout, chaosDetails.Delay); err != nil && cerrors.GetErrorType(err) != cerrors.FailureTypeProbeTimeout {
 		return err
 	}
 
 	// failing the probe, if the success condition doesn't met after the retry & timeout combinations
-	markedVerdictInEnd(err, chaosresult, probe, "PostChaos")
+	markedVerdictInEnd(ctx, err, chaosresult, probe, "PostChaos")
 	//patch chaosengine's state to stop
 	engine, err := clients.LitmusClient.ChaosEngines(chaosDetails.ChaosNamespace).Get(context.Background(), chaosDetails.EngineName, v1.GetOptions{})
 	if err != nil {
@@ -330,26 +330,26 @@ func stopChaosEngine(probe v1alpha1.ProbeAttributes, clients clients.ClientSets,
 }
 
 // execute contains steps to execute & evaluate probes in different modes at different phases
-func execute(probe v1alpha1.ProbeAttributes, chaosDetails *types.ChaosDetails, clients clients.ClientSets, resultDetails *types.ResultDetails, phase string) error {
+func execute(ctx context.Context, probe v1alpha1.ProbeAttributes, chaosDetails *types.ChaosDetails, clients clients.ClientSets, resultDetails *types.ResultDetails, phase string) error {
 	switch strings.ToLower(probe.Type) {
 	case "k8sprobe":
 		// it contains steps to prepare the k8s probe
-		if err = prepareK8sProbe(probe, resultDetails, clients, phase, chaosDetails); err != nil {
+		if err = prepareK8sProbe(ctx, probe, resultDetails, clients, phase, chaosDetails); err != nil {
 			return stacktrace.Propagate(err, "probes failed")
 		}
 	case "cmdprobe":
 		// it contains steps to prepare cmd probe
-		if err = prepareCmdProbe(probe, clients, chaosDetails, resultDetails, phase); err != nil {
+		if err = prepareCmdProbe(ctx, probe, clients, chaosDetails, resultDetails, phase); err != nil {
 			return stacktrace.Propagate(err, "probes failed")
 		}
 	case "httpprobe":
 		// it contains steps to prepare http probe
-		if err = prepareHTTPProbe(probe, clients, chaosDetails, resultDetails, phase); err != nil {
+		if err = prepareHTTPProbe(ctx, probe, clients, chaosDetails, resultDetails, phase); err != nil {
 			return stacktrace.Propagate(err, "probes failed")
 		}
 	case "promprobe":
 		// it contains steps to prepare prom probe
-		if err = preparePromProbe(probe, clients, chaosDetails, resultDetails, phase); err != nil {
+		if err = preparePromProbe(ctx, probe, clients, chaosDetails, resultDetails, phase); err != nil {
 			return stacktrace.Propagate(err, "probes failed")
 		}
 	default:
@@ -394,8 +394,8 @@ func IsProbeFailed(reason string) bool {
 	return false
 }
 
-func checkProbeTimeoutError(name string, code cerrors.ErrorType, probeErr error) error {
-	log.Infof("name: %s, err: %v", name, probeErr)
+func checkProbeTimeoutError(ctx context.Context, name string, code cerrors.ErrorType, probeErr error) error {
+	log.WithContext(ctx).Infof("name: %s, err: %v", name, probeErr)
 	if cerrors.GetErrorType(probeErr) == cerrors.ErrorTypeTimeout {
 		return cerrors.Error{
 			ErrorCode: code,
