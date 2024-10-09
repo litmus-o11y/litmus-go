@@ -2,6 +2,7 @@ package log
 
 import (
 	"context"
+	"go.opentelemetry.io/otel/attribute"
 
 	logrus "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/trace"
@@ -146,6 +147,12 @@ func (h *SpanLogHook) Fire(entry *logrus.Entry) error {
 		if ctx.HasSpanID() {
 			entry.Data["spanID"] = ctx.SpanID().String()
 		}
+
+		// 로그 메시지를 span event로 추가
+		span.AddEvent("log", trace.WithAttributes(
+			attribute.String("level", entry.Level.String()),
+			attribute.String("message", entry.Message),
+		))
 	}
 	return nil
 }
