@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 
 	// Uncomment to load all auth plugins
@@ -68,6 +69,7 @@ import (
 	"github.com/litmuschaos/litmus-go/pkg/telemetry"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
 )
 
 func init() {
@@ -77,6 +79,8 @@ func init() {
 		DisableSorting:         true,
 		DisableLevelTruncation: true,
 	})
+
+	logrus.AddHook(&log.SpanLogHook{})
 }
 
 func main() {
@@ -104,11 +108,13 @@ func main() {
 
 	//Getting kubeConfig and Generate ClientSets
 	if err := clients.GenerateClientSetFromKubeConfig(); err != nil {
-		log.Errorf("Unable to Get the kubeconfig, err: %v", err)
+		log.WithContext(ctx).Errorf("Unable to Get the kubeconfig, err: %v", err)
+		span.SetStatus(codes.Error, "Unable to Get the kubeconfig")
+		span.RecordError(err)
 		return
 	}
 
-	log.Infof("Experiment Name: %v", *experimentName)
+	log.WithContext(ctx).Infof("Experiment Name: %v", *experimentName)
 
 	// invoke the corresponding experiment based on the (-name) flag
 	switch *experimentName {
@@ -209,7 +215,8 @@ func main() {
 	case "k6-loadgen":
 		k6Loadgen.Experiment(ctx, clients)
 	default:
-		log.Errorf("Unsupported -name %v, please provide the correct value of -name args", *experimentName)
+		log.WithContext(ctx).Errorf("Unsupported -name %v, please provide the correct value of -name args", *experimentName)
+		span.SetStatus(codes.Error, fmt.Sprintf("Unsupported -name %v", *experimentName))
 		return
 	}
 }

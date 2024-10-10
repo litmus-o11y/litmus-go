@@ -21,6 +21,7 @@ import (
 	"github.com/palantir/stacktrace"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -31,14 +32,14 @@ func PreparePodDelete(ctx context.Context, experimentsDetails *experimentTypes.E
 
 	//Waiting for the ramp time before chaos injection
 	if experimentsDetails.RampTime != 0 {
-		log.Infof("[Ramp]: Waiting for the %vs ramp time before injecting chaos", experimentsDetails.RampTime)
+		log.WithContext(ctx).Infof("[Ramp]: Waiting for the %vs ramp time before injecting chaos", experimentsDetails.RampTime)
 		common.WaitForDuration(experimentsDetails.RampTime)
 	}
 
 	//set up the tunables if provided in range
 	SetChaosTunables(experimentsDetails)
 
-	log.InfoWithValues("[Info]: The chaos tunables are:", logrus.Fields{
+	log.WithContext(ctx).InfoWithValues("[Info]: The chaos tunables are:", logrus.Fields{
 		"PodsAffectedPerc": experimentsDetails.PodsAffectedPerc,
 		"Sequence":         experimentsDetails.Sequence,
 	})
@@ -46,19 +47,24 @@ func PreparePodDelete(ctx context.Context, experimentsDetails *experimentTypes.E
 	switch strings.ToLower(experimentsDetails.Sequence) {
 	case "serial":
 		if err := injectChaosInSerialMode(ctx, experimentsDetails, clients, chaosDetails, eventsDetails, resultDetails); err != nil {
+			span.SetStatus(codes.Error, "injectChaosInSerialMode failed")
+			span.RecordError(err)
 			return stacktrace.Propagate(err, "could not run chaos in serial mode")
 		}
 	case "parallel":
 		if err := injectChaosInParallelMode(ctx, experimentsDetails, clients, chaosDetails, eventsDetails, resultDetails); err != nil {
+			span.SetStatus(codes.Error, "injectChaosInParallelMode failed")
+			span.RecordError(err)
 			return stacktrace.Propagate(err, "could not run chaos in parallel mode")
 		}
 	default:
+		span.SetStatus(codes.Error, fmt.Sprintf("'%s' sequence is not supported", experimentsDetails.Sequence))
 		return cerrors.Error{ErrorCode: cerrors.ErrorTypeGeneric, Reason: fmt.Sprintf("'%s' sequence is not supported", experimentsDetails.Sequence)}
 	}
 
 	//Waiting for the ramp time after chaos injection
 	if experimentsDetails.RampTime != 0 {
-		log.Infof("[Ramp]: Waiting for the %vs ramp time after injecting chaos", experimentsDetails.RampTime)
+		log.WithContext(ctx).Infof("[Ramp]: Waiting for the %vs ramp time after injecting chaos", experimentsDetails.RampTime)
 		common.WaitForDuration(experimentsDetails.RampTime)
 	}
 	return nil
@@ -112,7 +118,7 @@ func injectChaosInSerialMode(ctx context.Context, experimentsDetails *experiment
 		//Deleting the application pod
 		for _, pod := range targetPodList.Items {
 
-			log.InfoWithValues("[Info]: Killing the following pods", logrus.Fields{
+			log.WithContext(ctx).InfoWithValues("[Info]: Killing the following pods", logrus.Fields{
 				"PodName": pod.Name})
 
 			if experimentsDetails.Force {
@@ -132,14 +138,14 @@ func injectChaosInSerialMode(ctx context.Context, experimentsDetails *experiment
 			default:
 				//Waiting for the chaos interval after chaos injection
 				if experimentsDetails.ChaosInterval != "" {
-					log.Infof("[Wait]: Wait for the chaos interval %vs", experimentsDetails.ChaosInterval)
+					log.WithContext(ctx).Infof("[Wait]: Wait for the chaos interval %vs", experimentsDetails.ChaosInterval)
 					waitTime, _ := strconv.Atoi(experimentsDetails.ChaosInterval)
 					common.WaitForDuration(waitTime)
 				}
 			}
 
 			//Verify the status of pod after the chaos injection
-			log.Info("[Status]: Verification for the recreation of application pod")
+			log.WithContext(ctx).Info("[Status]: Verification for the recreation of application pod")
 			for _, parent := range chaosDetails.ParentsResources {
 				target := types.AppDetails{
 					Names:     []string{parent.Name},
@@ -155,7 +161,7 @@ func injectChaosInSerialMode(ctx context.Context, experimentsDetails *experiment
 		}
 
 	}
-	log.Infof("[Completion]: %v chaos is done", experimentsDetails.ExperimentName)
+	log.WithContext(ctx).Infof("[Completion]: %v chaos is done", experimentsDetails.ExperimentName)
 
 	return nil
 
@@ -208,7 +214,7 @@ func injectChaosInParallelMode(ctx context.Context, experimentsDetails *experime
 		//Deleting the application pod
 		for _, pod := range targetPodList.Items {
 
-			log.InfoWithValues("[Info]: Killing the following pods", logrus.Fields{
+			log.WithContext(ctx).InfoWithValues("[Info]: Killing the following pods", logrus.Fields{
 				"PodName": pod.Name})
 
 			if experimentsDetails.Force {
@@ -229,14 +235,14 @@ func injectChaosInParallelMode(ctx context.Context, experimentsDetails *experime
 		default:
 			//Waiting for the chaos interval after chaos injection
 			if experimentsDetails.ChaosInterval != "" {
-				log.Infof("[Wait]: Wait for the chaos interval %vs", experimentsDetails.ChaosInterval)
+				log.WithContext(ctx).Infof("[Wait]: Wait for the chaos interval %vs", experimentsDetails.ChaosInterval)
 				waitTime, _ := strconv.Atoi(experimentsDetails.ChaosInterval)
 				common.WaitForDuration(waitTime)
 			}
 		}
 
 		//Verify the status of pod after the chaos injection
-		log.Info("[Status]: Verification for the recreation of application pod")
+		log.WithContext(ctx).Info("[Status]: Verification for the recreation of application pod")
 		for _, parent := range chaosDetails.ParentsResources {
 			target := types.AppDetails{
 				Names:     []string{parent.Name},
@@ -250,7 +256,7 @@ func injectChaosInParallelMode(ctx context.Context, experimentsDetails *experime
 		duration = int(time.Since(ChaosStartTimeStamp).Seconds())
 	}
 
-	log.Infof("[Completion]: %v chaos is done", experimentsDetails.ExperimentName)
+	log.WithContext(ctx).Infof("[Completion]: %v chaos is done", experimentsDetails.ExperimentName)
 
 	return nil
 }
