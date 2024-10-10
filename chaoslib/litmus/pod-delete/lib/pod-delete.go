@@ -21,6 +21,7 @@ import (
 	"github.com/palantir/stacktrace"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -46,13 +47,18 @@ func PreparePodDelete(ctx context.Context, experimentsDetails *experimentTypes.E
 	switch strings.ToLower(experimentsDetails.Sequence) {
 	case "serial":
 		if err := injectChaosInSerialMode(ctx, experimentsDetails, clients, chaosDetails, eventsDetails, resultDetails); err != nil {
+			span.SetStatus(codes.Error, "injectChaosInSerialMode failed")
+			span.RecordError(err)
 			return stacktrace.Propagate(err, "could not run chaos in serial mode")
 		}
 	case "parallel":
 		if err := injectChaosInParallelMode(ctx, experimentsDetails, clients, chaosDetails, eventsDetails, resultDetails); err != nil {
+			span.SetStatus(codes.Error, "injectChaosInParallelMode failed")
+			span.RecordError(err)
 			return stacktrace.Propagate(err, "could not run chaos in parallel mode")
 		}
 	default:
+		span.SetStatus(codes.Error, fmt.Sprintf("'%s' sequence is not supported", experimentsDetails.Sequence))
 		return cerrors.Error{ErrorCode: cerrors.ErrorTypeGeneric, Reason: fmt.Sprintf("'%s' sequence is not supported", experimentsDetails.Sequence)}
 	}
 
