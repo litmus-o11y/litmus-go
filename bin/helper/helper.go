@@ -54,7 +54,7 @@ func main() {
 
 	clients := cli.ClientSets{}
 
-	_, span := otel.Tracer(telemetry.TracerName).Start(ctx, "ExecuteExperimentHelper")
+	ctx, span := otel.Tracer(telemetry.TracerName).Start(ctx, "ExecuteExperimentHelper")
 	defer span.End()
 
 	// parse the helper name
