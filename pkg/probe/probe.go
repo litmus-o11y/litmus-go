@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"html/template"
 	"strings"
 	"time"
@@ -38,13 +40,15 @@ func RunProbes(ctx context.Context, chaosDetails *types.ChaosDetails, clients cl
 		return err
 	}
 
+	span.SetAttributes(attribute.String("probe.phase", phase))
+
 	switch strings.ToLower(phase) {
 	//execute probes for the prechaos phase
 	case "prechaos":
 		for _, probe := range probes {
 			switch strings.ToLower(probe.Mode) {
 			case "sot", "edge", "continuous":
-				if err := execute(probe, chaosDetails, clients, resultDetails, phase); err != nil {
+				if err := execute(ctx, probe, chaosDetails, clients, resultDetails, phase); err != nil {
 					span.SetStatus(codes.Error, fmt.Sprintf("%s mode %s probe execute failed", probe.Mode, probe.Name))
 					span.RecordError(err)
 					return err
@@ -55,7 +59,7 @@ func RunProbes(ctx context.Context, chaosDetails *types.ChaosDetails, clients cl
 	case "duringchaos":
 		for _, probe := range probes {
 			if strings.ToLower(probe.Mode) == "onchaos" {
-				if err := execute(probe, chaosDetails, clients, resultDetails, phase); err != nil {
+				if err := execute(ctx, probe, chaosDetails, clients, resultDetails, phase); err != nil {
 					span.SetStatus(codes.Error, fmt.Sprintf("%s mode %s probe execute failed", probe.Mode, probe.Name))
 					span.RecordError(err)
 					return err
@@ -73,7 +77,7 @@ func RunProbes(ctx context.Context, chaosDetails *types.ChaosDetails, clients cl
 			// evaluate continuous and onchaos probes
 			switch strings.ToLower(probe.Mode) {
 			case "onchaos", "continuous":
-				if err := execute(probe, chaosDetails, clients, resultDetails, phase); err != nil {
+				if err := execute(ctx, probe, chaosDetails, clients, resultDetails, phase); err != nil {
 					probeError = append(probeError, stacktrace.RootCause(err).Error())
 				}
 			}
@@ -89,7 +93,7 @@ func RunProbes(ctx context.Context, chaosDetails *types.ChaosDetails, clients cl
 		for _, probe := range probes {
 			switch strings.ToLower(probe.Mode) {
 			case "eot", "edge":
-				if err := execute(probe, chaosDetails, clients, resultDetails, phase); err != nil {
+				if err := execute(ctx, probe, chaosDetails, clients, resultDetails, phase); err != nil {
 					span.SetStatus(codes.Error, fmt.Sprintf("%s mode %s probe execute failed", probe.Mode, probe.Name))
 					span.RecordError(err)
 					return err
@@ -343,7 +347,14 @@ func stopChaosEngine(probe v1alpha1.ProbeAttributes, clients clients.ClientSets,
 }
 
 // execute contains steps to execute & evaluate probes in different modes at different phases
-func execute(probe v1alpha1.ProbeAttributes, chaosDetails *types.ChaosDetails, clients clients.ClientSets, resultDetails *types.ResultDetails, phase string) error {
+func execute(ctx context.Context, probe v1alpha1.ProbeAttributes, chaosDetails *types.ChaosDetails, clients clients.ClientSets, resultDetails *types.ResultDetails, phase string) error {
+	span := trace.SpanFromContext(ctx)
+	span.SetAttributes(
+		attribute.String("probe.name", probe.Name),
+		attribute.String("probe.mode", probe.Mode),
+		attribute.String("probe.type", probe.Type),
+	)
+
 	switch strings.ToLower(probe.Type) {
 	case "k8sprobe":
 		// it contains steps to prepare the k8s probe

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"go.opentelemetry.io/otel/attribute"
 	"os"
 
 	// Uncomment to load all auth plugins
@@ -114,6 +115,8 @@ func main() {
 	}
 
 	log.Infof("Experiment Name: %v", *experimentName)
+
+	span.SetAttributes(attribute.String("experiment.name", *experimentName))
 
 	// invoke the corresponding experiment based on the (-name) flag
 	switch *experimentName {
